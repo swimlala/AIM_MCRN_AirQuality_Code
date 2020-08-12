@@ -1,0 +1,49 @@
+---
+title: "Combine Cities"
+author: "Laura Albrecht"
+date: "7/23/2020"
+output: html_document
+---
+
+```{r}
+library(readr)
+turin_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/turin_full.csv")
+bologna_full <-  read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/bologna_full.csv")
+florence_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/florence_full.csv")
+milan_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/milan_full.csv")
+modena_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/modena_full.csv")
+parma_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/parma_full.csv")
+rome_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/rome_full.csv")
+brescia_full <- read_csv("~/Downloads/AIM_MCRN_AirQuality-master 5/brescia_full.csv")
+```
+
+```{r}
+library(dplyr)
+#add column of index
+turin_full$City = "turin"
+bologna_full$City = "bologna"
+florence_full$City = "florence"
+milan_full$City = "milan"
+modena_full$City = "modena"
+parma_full$City = "parma"
+rome_full$City = "rome"
+brescia_full$City = "brescia"
+
+#maybe add total population to make them into rates?
+turin_full$Population = 870456
+bologna_full$Population = 366133
+florence_full$Population = 349296
+milan_full$Population = 1236837
+modena_full$Population = 158886
+parma_full$Population = 146299
+rome_full$Population = 2318895
+brescia_full$Population = 184826
+
+italy_full <- bind_rows(bologna_full, brescia_full, parma_full, modena_full, florence_full, milan_full, turin_full, rome_full)
+
+italy_full$Rate = italy_full$Daily/italy_full$Population
+
+save(italy_full, file ="italy_full.RData")
+write_csv(italy_full, "italy_full.csv")
+```
+

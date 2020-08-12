@@ -1,0 +1,175 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+
+The first chunk gets the lattitude/longitude of all the cities
+
+```{r}
+#Remember to change the countrycodes=XX part when u do different countries
+
+library(RJSONIO)
+
+#get city names from the csv of cities with over 2k infections
+infection_data <- read_csv("mexico_coords2.csv")
+cities <- names(infection_data)
+cities <- cities[2:length(cities)]
+
+#idk how to make a new data table so im gonna write over the one I loaded in
+infection_data = infection_data[1:length(cities),2]
+infection_data$cities <- cities
+infection_data = infection_data[1:length(cities),2] #now its just a list of cities
+
+
+ncity <- length(cities)
+counter <- 1
+infection_data$lon[counter] <- 0
+infection_data$lat[counter] <- 0
+while (counter <= ncity){
+  #Get lattitude and longitude from an api. This part is from stack exchange
+  CityName <- gsub(' ','%20',infection_data$cities[counter]) #remove space for URLs
+  url <- paste(
+    "http://nominatim.openstreetmap.org/search?city="
+    , CityName
+    , "&countrycodes=MX&limit=9&format=json"
+    , sep="")
+  x <- fromJSON(url)
+  if(is.vector(x)){
+    infection_data$lon[counter] <- x[[1]]$lon
+    infection_data$lat[counter] <- x[[1]]$lat    
+  }
+  counter <- counter + 1
+}
+write.csv(infection_data, "cities.csv")
+```
+The second chunk gets the closest NOAA weather station to each city
+
+
+```{r}
+library(worldmet)
+require(stringi)
+
+city_data <- read.csv("cities.csv")
+city_data <- city_data[1:nrow(city_data),2:ncol(city_data)]
+city_data$NOAAcode[1] <- 0
+
+
+#find and clean up NOAA codes
+  meta <- getMetaLive()
+
+  #Get rid of non-Italy countries (REMEMBER TO CHANGE WHEN U DO DIFFERENT COUNTRIES)
+  id <- which(meta$CTRY %in% "MX")
+  meta <- meta[id, ]
+
+  #Get rid of inactive data stations
+  id <- which(format(meta$END, "%Y") %in% 2020)
+  meta <- meta[id, ]
+  
+  #Get rid of stations that dont have temperature data
+  id <- which(meta$code %in% "766810-99999")
+  meta = meta[-id, ]
+
+  
+  meta_final = meta
+  
+  n <- 1 #number of stations to be returned. must be 1 right now
+  r <- 6371 # radius of the Earth
+  
+for (i in 1:nrow(city_data)) {
+  #lat and lon of each city
+  lon <- city_data$lon[i]
+  lat <- city_data$lat[i]
+
+
+  meta_final$longR <- meta_final$LON * pi / 180
+  meta_final$latR <- meta_final$LAT * pi / 180
+  LON <- lon * pi / 180
+  LAT <- lat * pi / 180
+  #calculate the distance between each station and the   city
+  meta_final$dist <- acos(sin(LAT) * sin(meta_final$latR) + cos(LAT) *cos(meta_final$latR) * cos(meta_final$longR - LON)) * r
+
+  #sort and retrun top n nearest
+  final_code <- head(openair:::sortDataFrame(meta_final, key = "dist"), n)
+  city_data$NOAAcode[i] <- final_code$code
+  
+}
+
+write.csv(city_data, "cities2.csv")
+```
+
+The third chunk actually goes and gets hourly temperature/humidity data and finds the median to make it daily. Writes individual files for each city
+
+```{r warning=FALSE}
+library(worldmet)
+library(lubridate)
+library(dplyr)
+#Get our list of cities and NOAA codes
+city_data <- read.csv("cities2.csv")
+city_data <- city_data[1:nrow(city_data),2:ncol(city_data)]
+
+
+for (i in 1:nrow(city_data)) {
+  #we only want to keep data for the date, temperature, and humidity
+  keep <- c("date", "air_temp", "RH")
+  data_noaa <- importNOAA(code = city_data$NOAAcode[i], year = 2020) 
+  data_noaa = data_noaa[keep]
+  data_noaa <- na.omit(data_noaa)
+  #Group everything by day and find the medians
+  data_noaa <- data_noaa %>% mutate(Day = day(date), Month = month(date))
+  median_temp <- data_noaa %>% group_by(Day, Month) %>% summarize(med_temp = median(air_temp))
+  median_hum <- data_noaa %>% group_by(Day, Month) %>% summarize(med_hum = median(RH))
+  total_median <- merge(median_hum,median_temp,by=c("Day","Month"))
+  
+  #make a column with city names just for fun
+  total_median$city <- city_data$cities[i]
+  
+  #format the date better
+  total_median <- total_median %>% mutate(date = make_date(2020, total_median$Month, total_median$Day))
+  keep <- c("date", "med_temp", "med_hum")
+  total_median <- total_median[keep]
+  total_median <- total_median[order(as.Date(total_median$date, format="%Y/%m/%d")),]
+  
+  #write to a folder called data (which must exist i think)
+  write_csv(total_median, paste("noaa_data/", city_data$cities[i], ".csv", sep=""))
+}
+```
+
+
+
+finally we combine infection and temp/humidity data on dates where we use infections
+```{r}
+library(lubridate)
+library(dplyr)
+#read in our list of cities and their daily covid cases
+city_names <- read.csv("cities2.csv")
+city_names <- city_names$cities
+city_data <- read.csv("italy2000.csv")
+
+for (i in 1:length(city_names)) {
+  #read in the csv for our city
+  city <- read_csv(paste("noaa_data/", city_names[i], ".csv", sep=""))
+  
+  #remove weather data before cases reported
+  start_date = as.Date(make_date(2020, 2, 24), format = "%Y/%m/%d")
+  end_date = as.Date(make_date(2020, 7, 23), format = "%Y/%m/%d")
+  keep <- which(as.Date(city$date, format = "%Y/%m/%d") >= start_date)
+  city <- city[keep,]
+  keep <- which(as.Date(city$date, format = "%Y/%m/%d") <= end_date)
+  city <- city[keep,]
+  times <- seq.Date(start_date, end_date, "day")
+  df <- data.frame(date=times)
+  city_data$Date <- as.Date(city_data$Date, format = "%m/%d/%Y")
+  city <- full_join(df, city)
+  
+  city$Daily <- city_data[[sub(" ", ".", city_names[i])]]
+  write_csv(city, paste("air_data/", city_names[i], "_full.csv", sep=""))
+}
+
+
+
+```

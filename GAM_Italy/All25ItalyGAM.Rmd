@@ -1,0 +1,118 @@
+---
+title: "All 25 Cities Italy"
+author: "Laura Albrecht"
+date: "8/6/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+Create GAM models for all 25 cities in Italy as well as all of Italy combined.
+
+```{r echo = FALSE, message = FALSE, warning = FALSE}
+source("ReadAllData1.R")
+library(mgcv)
+#all of italy
+italy_25gam <- gam(log(mean)~ 
+                    s(home, k = 5)+s(pm25, k = 5)+s(med_temp, k = 5)+s(med_hum, k = 5), data = italy_25, family = gaussian)
+
+plot(italy_25gam,scale=0,se=2, shade=TRUE,pages=1, scheme = 2,main = "25 Cities in Italy")
+summary(italy_25gam)
+gam.check(italy_25gam)
+
+#all of italy including city
+#italy_25f <- italy_25
+#italy_25f$city_name <- as.factor(italy_25$city_name)
+
+#italy_25gam <- gam(log(mean)~ 
+#                    s(home, k = 5)+s(pm25, k = 5)+s(med_temp, k = 5)+s(med_hum, k = 5)+city_name, data = italy_25f, family = gaussian)
+
+#plot(italy_25gam,scale=0,se=2, shade=TRUE,pages=1, scheme = 2,main = "25 Cities in Italy")
+#summary(italy_25gam)
+
+
+```
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+library(mgcv)
+#loop through and save gams
+for(city in city_names){
+  assign( paste(city,"_gam", sep = ""), gam(log(mean)~ 
+                    s(home)+s(pm25, k = 5)+s(med_temp, k = 6)+s(med_hum, k = 6), data = italy_25[italy_25$city_name == city,], family = gaussian))}
+
+#loop through and plot gams
+for(city in city_names){
+  plot(get(paste(city, "_gam", sep = "")),scale=0,se=2, shade=TRUE,pages=1, scheme = 2, main = city)
+}
+
+#for(city in city_names){
+#  summary(get(paste(city, "_gam", sep = "")))
+#}
+ # summary(temp.gamM1)
+ # gam.check(temp.gamM1)
+
+
+```
+
+```{r include = FALSE}
+#trying with lapply
+
+my_list <- lapply(city_names, function(x){
+  summary(gam(log(mean)~ s(home)+s(pm25, k = 5)+s(med_temp, k = 6)+s(med_hum, k = 6), data = italy_25[italy_25$city_name == x,], family = gaussian))
+})
+```
+
+This gratia package makes nice gam plots based off of ggplot. Have a lot of things you can customize too. Might be nice to use in presentaitons, etc
+```{r echo = FALSE, warning = FALSE, message = FALSE}
+#plot from my list
+library(gratia)
+
+my_gam <- gam(log(mean)~ s(home)+s(pm25, k = 5)+s(med_temp, k = 6)+s(med_hum, k = 6), data = italy_25[italy_25$city_name=="Alessandria",], family = gaussian)
+
+#use gratia package for plotting 
+draw(my_gam)
+```
+
+```{r include = FALSE}
+my_big_gam <- gam(log(mean)~ s(home)+s(pm25)+s(med_temp)+s(med_hum)+s(no2)+s(o3) +ti(med_temp, med_hum)+ti(pm25, no2) + ti(pm25, o3)+ti(pm25, med_temp), data = italy_25, family = gaussian)
+draw(my_big_gam)
+summary(my_big_gam)
+```
+Plot of all R(t) curves and all infections
+```{r echo = FALSE}
+#plot all R(t) curves
+library(ggplot2)
+ggplot(italy_25, aes(date, mean, color = city_name))+geom_line()
+
+#plot infections curve
+ggplot(italy_25, aes(date, infections, color = city_name))+geom_line()
+```
+
+##What exactly is the "infections" column in the data? It's very smooth
+
+Here I performed curve registration which essentially centers all of the curves so the peaks occur at the same time
+```{r echo = FALSE}
+#data registration
+ind <- italy_25 %>% group_by(city_name) %>% summarise(which.max(infections))
+
+library(zoo)
+italy_25$day_num1 <- italy_25$day_num
+
+for(i in 1:length(ind$city_name)){
+italy_25[italy_25$city_name == ind$city_name[i],]$day_num1 <- italy_25[italy_25$city_name == ind$city_name[i],]$day_num - ind$`which.max(infections)`[i]
+}
+
+italy_25$Ave7Daily <- NA
+italy_25$Ave7Daily[1:3744] <- rollmean(italy_25$Daily, 7)
+
+#ggplot(italy_25[1:3744,], aes(day_num1, Ave7Daily, color = city_name))+geom_line()
+italy_25$day_num2 <- italy_25$day_num1 - 54
+
+ggplot(italy_25, aes(day_num2, infections, color = city_name))+geom_line()+labs(x= "Number of Days Since Peak", y = "Infections", title = "Centered Infections")
+```
+
+```{r echo = FALSE, include = FALSE}
+my_gam <- gam(infections~ s(home)+s(pm25)+s(med_temp)+s(med_hum)+s(day_num1), data = italy_25, family = gaussian)
+draw(my_gam)
+```
+
